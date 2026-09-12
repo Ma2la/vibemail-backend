@@ -251,19 +251,22 @@ describe('normalizeMessage', () => {
 
 describe('toRow — camelCase Message → snake_case MessageRow', () => {
   const msg = {
-    userId:    'user-uuid-123',
-    gmailId:   'gmail_id_abc',
-    threadId:  'thread_id_xyz',
-    labelIds:  ['INBOX', 'UNREAD'],
-    from:      'Alice <alice@example.com>',
-    to:        'bob@example.com',
-    subject:   'Hello',
-    date:      'Mon, 01 Jan 2024 00:00:00 +0000',
-    snippet:   'short snippet',
-    bodyPlain: 'plain text',
-    bodyHtml:  '<p>html text</p>',
-    isRead:    false,
-    isStarred: true,
+    userId:       'user-uuid-123',
+    gmailId:      'gmail_id_abc',
+    threadId:     'thread_id_xyz',
+    labelIds:     ['INBOX', 'UNREAD'],
+    internalDate: '1704067200000',
+    from:         'Alice <alice@example.com>',
+    to:           'bob@example.com',
+    subject:      'Hello',
+    date:         'Mon, 01 Jan 2024 00:00:00 +0000',
+    snippet:      'short snippet',
+    bodyPlain:    'plain text',
+    bodyHtml:     '<p>html text</p>',
+    isRead:       false,
+    isStarred:    true,
+    status:       'inbox' as const,
+    draftId:      null,
   };
 
   it('maps from → from_address and to → to_address (SQL reserved word avoidance)', () => {
@@ -301,6 +304,8 @@ describe('rowToMessage — snake_case DbMessageRow → camelCase Message', () =>
     body_html:    '<p>html</p>',
     is_read:      true,
     is_starred:   false,
+    status:       'inbox',
+    draft_id:     null,
     created_at:   '2024-01-01T00:00:00.000Z',
     updated_at:   '2024-01-02T00:00:00.000Z',
   };
