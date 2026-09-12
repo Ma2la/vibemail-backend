@@ -54,11 +54,11 @@ Then cross-reference against `build_sequence.md` for the current unit to determi
 ## Final verdict
 
 If all three checks are PASS:
-> ✅ Unit [N] verified — TypeScript clean, tests green, no unexpected modifications.
+> UNIT VERIFIED — TypeScript clean, tests green, no unexpected modifications.
 
 If any check is FAIL:
-> ❌ Unit [N] failed.
-> 
-> Then list each failure with its check number and specific details.
+> UNIT FAILED
+>
+> List each failure with its check number and specific details.
 
 Do not suggest fixes. Do not modify any file. Report only.
