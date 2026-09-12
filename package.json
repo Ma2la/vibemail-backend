@@ -16,16 +16,16 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/JacintoDesign/vibemail-backend.git"
+    "url": "git+https://github.com/Ma2la/vibemail-backend.git"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "type": "commonjs",
   "bugs": {
-    "url": "https://github.com/JacintoDesign/vibemail-backend/issues"
+    "url": "https://github.com/Ma2la/vibemail-backend/issues"
   },
-  "homepage": "https://github.com/JacintoDesign/vibemail-backend#readme",
+  "homepage": "https://github.com/Ma2la/vibemail-backend#readme",
   "dependencies": {
     "@supabase/supabase-js": "^2.106.1",
     "@types/jsonwebtoken": "^9.0.10",
