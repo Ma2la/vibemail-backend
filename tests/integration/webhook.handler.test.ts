@@ -4,9 +4,11 @@
  * processGmailNotification (src/webhook/gmail.ts) is mocked — this tests
  * only the HTTP contract of the webhook handler:
  *   - Method guard (405)
- *   - Acknowledge-first: HTTP 200 is sent BEFORE processing begins
+ *   - Process-then-respond: HTTP 200 is sent AFTER processing completes
+ *     (Vercel freezes the function the instant its response flushes, so a
+ *     "respond-first" pattern would kill any background work started after)
  *   - processGmailNotification is called with the body and token from query
- *   - Errors from processGmailNotification are caught (200 already sent)
+ *   - Errors from processGmailNotification are caught and still ack (200)
  */
 
 import handler from '../../api/webhook/gmail';
@@ -49,13 +51,19 @@ describe('POST /webhook/gmail — API entry point', () => {
     expect(state.statusCode).toBe(405);
   });
 
-  // ── Acknowledge-first pattern ──────────────────────────────────────────────
+  // ── Process-then-respond pattern ────────────────────────────────────────────
 
-  it('sends HTTP 200 before processGmailNotification resolves (ack-first)', async () => {
-    // processGmailNotification is a long-running promise that never resolves
-    // until we manually release it — the handler must still return 200 immediately.
-    let releaseProcess!: () => void;
-    const processPending = new Promise<void>(resolve => { releaseProcess = resolve; });
+  it('awaits processGmailNotification before sending HTTP 200 (process-then-respond)', async () => {
+    // Resolve processGmailNotification only on a later tick — if the handler
+    // responded before awaiting it (the old ack-first assumption), this flag
+    // would still be false by the time `handler` returns.
+    let processResolved = false;
+    const processPending = new Promise<void>(resolve => {
+      setImmediate(() => {
+        processResolved = true;
+        resolve();
+      });
+    });
     mockProcess.mockReturnValue(processPending);
 
     const { state, res } = mockRes();
@@ -64,13 +72,11 @@ describe('POST /webhook/gmail — API entry point', () => {
       res,
     );
 
-    // Handler has returned — 200 must already be sent
+    // Handler must not resolve — and 200 must not be sent — until
+    // processGmailNotification has itself resolved.
+    expect(processResolved).toBe(true);
     expect(state.statusCode).toBe(200);
     expect(state.ended).toBe(true);
-
-    // Release the pending process (cleanup)
-    releaseProcess();
-    await processPending;
   });
 
   // ── processGmailNotification invocation ───────────────────────────────────
@@ -82,9 +88,8 @@ describe('POST /webhook/gmail — API entry point', () => {
       res,
     );
 
-    // Allow the fire-and-forget promise to flush
-    await new Promise(resolve => setImmediate(resolve));
-
+    // handler awaits processGmailNotification before returning, so it has
+    // already been called (and settled) by this point.
     expect(mockProcess).toHaveBeenCalledWith(VALID_PAYLOAD, 'secret_token');
   });
 
@@ -95,7 +100,6 @@ describe('POST /webhook/gmail — API entry point', () => {
       res,
     );
 
-    await new Promise(resolve => setImmediate(resolve));
     expect(mockProcess).toHaveBeenCalledWith(expect.anything(), 'my_verification_token');
   });
 
@@ -103,7 +107,6 @@ describe('POST /webhook/gmail — API entry point', () => {
     const { res } = mockRes();
     await handler(mockReq({ method: 'POST', body: {} }), res);
 
-    await new Promise(resolve => setImmediate(resolve));
     expect(mockProcess).toHaveBeenCalledWith(expect.anything(), '');
   });
 
@@ -116,11 +119,9 @@ describe('POST /webhook/gmail — API entry point', () => {
       res,
     );
 
-    // 200 was sent before the rejection — must still be 200
+    // processGmailNotification rejected, but the handler's try/catch still
+    // logs and falls through to a 200 ack (no infinite Pub/Sub retries).
     expect(state.statusCode).toBe(200);
     expect(state.ended).toBe(true);
-
-    // Let the rejected promise settle without crashing the test
-    await new Promise(resolve => setImmediate(resolve));
   });
 });
