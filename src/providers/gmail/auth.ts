@@ -182,7 +182,7 @@ async function setupWatch(
   }
 
   const expiry = watchData.expiration ? Number(watchData.expiration) : null;
-  await updateWatchExpiry(userId, expiry, null);   // watch_resource_id set on first push
+  await updateWatchExpiry(userId, expiry);
 
   // Only set history_id for new users. The watch response historyId is the
   // Pub/Sub checkpoint: new emails arriving after this point will be delivered
