@@ -4,6 +4,7 @@ import { Message } from '../types/message';
 import { ProviderError } from '../types/provider';
 import { normalizeMessage, upsertMessages } from '../sync/normalize';
 import { getClient, updateHistoryId } from '../db';
+import { runInitialSync } from '../sync';
 
 // ── PubSub payload types ─────────────────────────────────────────────────────
 
@@ -182,7 +183,26 @@ export async function processGmailNotification(
   const auth  = await loadOAuth2Client(user.id);
   const gmail = google.gmail({ version: 'v1', auth });
 
-  const messageIds = await collectDeltaMessageIds(gmail, user.history_id);
+  let messageIds: Set<string>;
+  try {
+    messageIds = await collectDeltaMessageIds(gmail, user.history_id);
+  } catch (err) {
+    const status = (err as Record<string, unknown>).status;
+    if (status === 404) {
+      // Per the Gmail API docs, history IDs are not contiguous and a stale
+      // startHistoryId returns 404. Without a full resync here, history_id
+      // would never advance past this stale value and every subsequent
+      // push for this user would 404 forever with no recovery path.
+      console.warn(
+        `[webhook:gmail] history.list 404 for user ${user.id} ` +
+        `(stale startHistoryId ${user.history_id}) — running full resync.`,
+      );
+      await runInitialSync(user.id);
+      await updateHistoryId(user.id, newHistoryId);
+      return;
+    }
+    throw err;
+  }
 
   // ── 6. Fetch, normalize, and upsert affected messages ────────────────────
   if (messageIds.size > 0) {

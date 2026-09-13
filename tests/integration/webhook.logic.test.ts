@@ -37,12 +37,13 @@ import { google } from 'googleapis';
 
 const mockHistoryList  = jest.fn();
 const mockMessagesGet  = jest.fn();
+const mockMessagesList = jest.fn();
 
 beforeEach(() => {
   (authModule.loadOAuth2Client as jest.Mock).mockResolvedValue({ fake: 'oauth2_client' });
   (google.gmail as jest.Mock).mockReturnValue({
     users: {
-      messages: { get: mockMessagesGet },
+      messages: { get: mockMessagesGet, list: mockMessagesList },
       history:  { list: mockHistoryList },
     },
   });
@@ -272,6 +273,86 @@ describe('processGmailNotification — happy path delta fetch', () => {
 
     // messages.get should have been called exactly once despite the duplicate
     expect(mockMessagesGet).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('processGmailNotification — stale startHistoryId (404 from history.list)', () => {
+  let userId: string;
+  let email:  string;
+
+  beforeAll(async () => {
+    process.env.GOOGLE_PUBSUB_VERIFICATION_TOKEN = VERIFICATION_TOKEN;
+    const user = await seedUser({ historyId: '5000' });
+    userId = user.id;
+    email  = user.email;
+  });
+
+  afterAll(async () => {
+    await cleanupUser(userId);
+  });
+
+  function make404(): Error & { status: number } {
+    return Object.assign(new Error('Requested entity was not found.'), { status: 404 });
+  }
+
+  it('runs a full resync and advances history_id to the notification value when history.list 404s', async () => {
+    const newHistory  = 5099;
+    const resyncMsgId = `resync_msg_${Date.now()}`;
+
+    mockHistoryList.mockRejectedValue(make404());
+    mockMessagesList.mockResolvedValue({ data: { messages: [{ id: resyncMsgId }] } });
+    mockMessagesGet.mockResolvedValue({ data: makeGmailMessage(resyncMsgId, userId) });
+
+    await processGmailNotification(makePubSubPayload(email, newHistory), VERIFICATION_TOKEN);
+
+    // Full resync ran (messages.list was called — the delta path never calls this).
+    expect(mockMessagesList).toHaveBeenCalled();
+    expect(mockMessagesGet).toHaveBeenCalledWith(
+      expect.objectContaining({ id: resyncMsgId }),
+    );
+
+    // The resynced message was upserted.
+    const { data: msgRow } = await getTestClient()
+      .from('messages')
+      .select('gmail_id')
+      .eq('gmail_id', resyncMsgId)
+      .single();
+    expect((msgRow as { gmail_id: string }).gmail_id).toBe(resyncMsgId);
+
+    // history_id advances to the current notification's value, unblocking future pushes.
+    const { data: userRow } = await getTestClient()
+      .from('users')
+      .select('history_id')
+      .eq('id', userId)
+      .single();
+    expect((userRow as { history_id: string }).history_id).toBe(String(newHistory));
+  });
+
+  it('does not swallow non-404 errors from history.list, and does not advance history_id', async () => {
+    const { data: before } = await getTestClient()
+      .from('users')
+      .select('history_id')
+      .eq('id', userId)
+      .single();
+    const historyIdBefore = (before as { history_id: string }).history_id;
+
+    const serverError = Object.assign(new Error('Internal error'), { status: 500 });
+    mockHistoryList.mockRejectedValue(serverError);
+
+    await expect(
+      processGmailNotification(makePubSubPayload(email, 5100), VERIFICATION_TOKEN),
+    ).rejects.toThrow('Internal error');
+
+    expect(mockMessagesList).not.toHaveBeenCalled();
+
+    const { data: after } = await getTestClient()
+      .from('users')
+      .select('history_id')
+      .eq('id', userId)
+      .single();
+    // Unchanged — the resync path never ran, and the plain rethrow must not
+    // advance history_id either.
+    expect((after as { history_id: string }).history_id).toBe(historyIdBefore);
   });
 });
 

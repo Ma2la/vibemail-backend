@@ -30,9 +30,9 @@ Implement the initial message sync: call `messages.list` + `messages.get` for ea
 
 ## Unit 4 — PubSub Webhook Receiver
 
-Implement the Gmail Push Notification endpoint: receive a Pub/Sub push payload, decode the `historyId` from the notification, call `history.list` for the delta since the last known `historyId`, and upsert new or changed messages into Supabase. The upsert must write all Message fields including `status` and `draft_id`.
+Implement the Gmail Push Notification endpoint: receive a Pub/Sub push payload, decode the `historyId` from the notification, call `history.list` for the delta since the last known `historyId`, and upsert new or changed messages into Supabase. The upsert must write all Message fields including `status` and `draft_id`. A stale `startHistoryId` makes `history.list` return 404 (history IDs are not contiguous); on that 404 specifically, run a full resync and advance `history_id` to the current notification's value so the stored checkpoint never gets stuck.
 
-**Verify:** A real or replayed Pub/Sub notification triggers the receiver, the correct `history.list` call is made using the notification's `historyId`, and the resulting delta is stored accurately with correct `status` values.
+**Verify:** A real or replayed Pub/Sub notification triggers the receiver, the correct `history.list` call is made using the notification's `historyId`, the resulting delta is stored accurately with correct `status` values, and a 404 from `history.list` (stale `startHistoryId`) triggers a full resync and still advances `history_id` instead of leaving sync stuck.
 
 ---
 
