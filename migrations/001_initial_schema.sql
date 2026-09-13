@@ -27,7 +27,6 @@ CREATE TABLE IF NOT EXISTS public.users (
   -- Gmail Pub/Sub watch metadata (Unit 4 — webhook receiver)
   history_id              TEXT,                      -- last known historyId for history.list delta
   watch_expiry            BIGINT,                    -- Unix ms; when the Gmail push watch expires (~7 days)
-  watch_resource_id       TEXT,                      -- resourceId returned by watch(); used to stop/renew
   created_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at              TIMESTAMPTZ NOT NULL DEFAULT now()
 );
