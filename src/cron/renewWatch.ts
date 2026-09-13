@@ -25,10 +25,6 @@ export interface RenewalResult {
  * 24 hours of expiry (or has already expired), then calls users.watch for each,
  * and persists the new expiration and history_id.
  *
- * watch_resource_id is reset to null — the Pub/Sub push receiver (api/webhook/gmail.ts)
- * repopulates it from the X-Goog-Resource-ID header on the first notification
- * after renewal, matching the pattern used during initial OAuth in setupWatch.
- *
  * Per-user errors are caught and counted rather than aborting the whole batch,
  * so one user's revoked token does not block all other renewals.
  */
@@ -79,9 +75,7 @@ export async function renewExpiringWatches(): Promise<RenewalResult> {
       });
 
       const expiry = watchData.expiration ? Number(watchData.expiration) : null;
-      // Reset watch_resource_id to null — the webhook receiver captures the
-      // new resource ID from the X-Goog-Resource-ID header on first delivery.
-      await updateWatchExpiry(user.id, expiry, null);
+      await updateWatchExpiry(user.id, expiry);
       if (watchData.historyId) {
         await updateHistoryId(user.id, watchData.historyId);
       }

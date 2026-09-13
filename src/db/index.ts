@@ -181,20 +181,17 @@ export async function updateHistoryId(
 // ── updateWatchExpiry ─────────────────────────────────────────────────────────
 
 /**
- * Persists the Gmail watch expiry timestamp and resource ID after a renewal.
+ * Persists the Gmail watch expiry timestamp after a renewal.
  * watch_expiry is a Unix timestamp in milliseconds (as returned by Gmail API).
- * watch_resource_id can be null when the caller wants to clear the field.
  */
 export async function updateWatchExpiry(
-  userId:          string,
-  watchExpiry:     number | null,
-  watchResourceId: string | null,
+  userId:      string,
+  watchExpiry: number | null,
 ): Promise<void> {
   const { error } = await getClient()
     .from('users')
     .update({
-      watch_expiry:      watchExpiry,
-      watch_resource_id: watchResourceId,
+      watch_expiry: watchExpiry,
     })
     .eq('id', userId);
 

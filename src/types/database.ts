@@ -123,7 +123,6 @@ export type Database = {
           token_expires_at: number | null
           updated_at: string
           watch_expiry: number | null
-          watch_resource_id: string | null
         }
         Insert: {
           created_at?: string
@@ -137,7 +136,6 @@ export type Database = {
           token_expires_at?: number | null
           updated_at?: string
           watch_expiry?: number | null
-          watch_resource_id?: string | null
         }
         Update: {
           created_at?: string
@@ -151,7 +149,6 @@ export type Database = {
           token_expires_at?: number | null
           updated_at?: string
           watch_expiry?: number | null
-          watch_resource_id?: string | null
         }
         Relationships: []
       }
