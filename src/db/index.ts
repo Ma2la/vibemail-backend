@@ -65,6 +65,11 @@ export async function upsertMessage(
 ): Promise<void> {
   const ms = Number(msg.internalDate);
   const row: TablesInsert<'messages'> = {
+    // The messages_set_id trigger back-fills id from gmail_id when null, but
+    // the generated Insert type (src/types/database.ts) doesn't know about
+    // trigger-set defaults and marks id as required — set it explicitly so
+    // this satisfies the type and matches what the trigger would do anyway.
+    id:           msg.gmailId,
     user_id:      msg.userId,
     gmail_id:     msg.gmailId,
     thread_id:    msg.threadId,

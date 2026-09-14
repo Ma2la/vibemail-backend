@@ -115,6 +115,7 @@ export function normalizeMessage(
 // DB schema uses snake_case; from_address / to_address avoid SQL reserved words.
 
 export interface MessageRow {
+  id:           string;
   user_id:      string;
   gmail_id:     string;
   thread_id:    string;
@@ -144,6 +145,10 @@ export function toRow(
   msg: Omit<Message, 'id' | 'createdAt' | 'updatedAt'>,
 ): MessageRow {
   return {
+    // See the matching comment in src/db/index.ts's upsertMessage — the
+    // set_message_id trigger would default this from gmail_id, but the
+    // generated Insert type requires it explicitly.
+    id:           msg.gmailId,
     user_id:      msg.userId,
     gmail_id:     msg.gmailId,
     thread_id:    msg.threadId,
