@@ -34,6 +34,7 @@ export function handleError(res: VercelResponse, err: unknown): void {
       USER_NOT_FOUND:        404,
       MESSAGE_NOT_FOUND:     404,
       THREAD_NOT_FOUND:      404,
+      DRAFT_NOT_FOUND:       404,
       ALREADY_IN_STATE:      409,
       INVALID_LIMIT:         422,
       GMAIL_RATE_LIMITED:    429,
@@ -41,6 +42,7 @@ export function handleError(res: VercelResponse, err: unknown): void {
       GMAIL_LIST_FAILED:     502,
       GMAIL_SEND_FAILED:     502,
       GMAIL_MODIFY_FAILED:   502,
+      GMAIL_DRAFT_FAILED:    502,
       GMAIL_UNAVAILABLE:     503,
     };
     const status = statusMap[err.code] ?? 500;

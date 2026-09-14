@@ -1,4 +1,4 @@
-import { Message } from './message';
+import { Message, MessageStatus } from './message';
 
 // ── OAuth token shape ────────────────────────────────────────────────────────
 
@@ -30,6 +30,22 @@ export interface SendMessageOptions {
   threadId?: string;   // omit for new compose; include for threaded reply
 }
 
+// ── updateMessageState ────────────────────────────────────────────────────────
+
+export interface UpdateMessageStateOptions {
+  read?:     boolean;   // true → mark read; false → mark unread
+  starred?:  boolean;   // true → star; false → unstar
+  archived?: boolean;   // true → archive (remove from inbox); false → unarchive
+  trashed?:  boolean;   // true → move to trash; false → restore from trash
+}
+
+export interface UpdateMessageStateResult {
+  id:        string;
+  isRead:    boolean;
+  isStarred: boolean;
+  status:    MessageStatus;   // derived server-side, never client-supplied
+}
+
 // ── Error ────────────────────────────────────────────────────────────────────
 
 export class ProviderError extends Error {
@@ -48,11 +64,11 @@ export class ProviderError extends Error {
 export interface EmailProvider {
   // OAuth flow
   initiateOAuth(): Promise<{ url: string; state: string }>;
-  exchangeCode(code: string, state?: string): Promise<OAuthTokens>;
-  refreshAccessToken(refreshToken: string): Promise<OAuthTokens>;
+  exchangeCode(code: string, state?: string): Promise<OAuthTokens & { userId: string; email: string; name: string }>;
+  refreshAccessToken(userId: string): Promise<OAuthTokens>;
 
   // Messages
   listMessages(options: ListMessagesOptions): Promise<ListMessagesResult>;
   sendMessage(options: SendMessageOptions): Promise<Message>;
-  markRead(messageId: string, read: boolean): Promise<{ id: string; isRead: boolean }>;
+  updateMessageState(messageId: string, options: UpdateMessageStateOptions): Promise<UpdateMessageStateResult>;
 }

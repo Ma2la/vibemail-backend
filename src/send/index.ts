@@ -2,7 +2,49 @@ import { google } from 'googleapis';
 import { loadOAuth2Client } from '../providers/gmail/auth';
 import { SendMessageOptions, ProviderError } from '../types/provider';
 import { Message } from '../types/message';
-import { normalizeMessage, upsertMessages } from '../sync/normalize';
+import { normalizeMessage, upsertMessages, getHeader } from '../sync/normalize';
+
+// ── Reply threading headers ──────────────────────────────────────────────────
+
+/**
+ * Per the Gmail API's own documented threadId requirements, adding a message
+ * to an existing thread needs its raw RFC 2822 form to carry In-Reply-To and
+ * References headers pointing at the thread's most recent message — passing
+ * threadId in the request body alone is not sufficient. Returns null when the
+ * thread's last message has no Message-ID header to reply to (fall back to
+ * sending without these headers rather than failing the whole send).
+ */
+async function getReplyHeaders(
+  gmail:    ReturnType<typeof google.gmail>,
+  threadId: string,
+): Promise<{ inReplyTo: string; references: string } | null> {
+  let thread;
+  try {
+    ({ data: thread } = await gmail.users.threads.get({
+      userId:          'me',
+      id:              threadId,
+      format:          'metadata',
+      metadataHeaders: ['Message-ID', 'References'],
+    }));
+  } catch (err) {
+    const status = (err as Record<string, unknown>).status ?? (err as Record<string, unknown>).code;
+    if (status === 404) {
+      throw new ProviderError('THREAD_NOT_FOUND', `No thread found for threadId "${threadId}"`, err);
+    }
+    throw err;
+  }
+
+  const lastMessage = thread.messages?.[thread.messages.length - 1];
+  const headers = lastMessage?.payload?.headers ?? [];
+
+  const messageId = getHeader(headers, 'Message-ID');
+  if (!messageId) return null;
+
+  const existingReferences = getHeader(headers, 'References');
+  const references = existingReferences ? `${existingReferences} ${messageId}` : messageId;
+
+  return { inReplyTo: messageId, references };
+}
 
 // ── RFC 2822 construction ────────────────────────────────────────────────────
 
@@ -13,11 +55,16 @@ import { normalizeMessage, upsertMessages } from '../sync/normalize';
  * Line endings are \r\n per RFC 2822 §2.1.
  * The blank line between headers and body is required by the spec.
  */
-function buildRaw(from: string, options: SendMessageOptions): string {
+function buildRaw(
+  from:         string,
+  options:      SendMessageOptions,
+  replyHeaders: { inReplyTo: string; references: string } | null,
+): string {
   const headers = [
     `From: ${from}`,
     `To: ${options.to}`,
     `Subject: ${options.subject}`,
+    ...(replyHeaders ? [`In-Reply-To: ${replyHeaders.inReplyTo}`, `References: ${replyHeaders.references}`] : []),
     'MIME-Version: 1.0',
     'Content-Type: text/plain; charset=utf-8',
   ].join('\r\n');
@@ -53,8 +100,14 @@ export async function sendMessage(
     );
   }
 
+  // When replying in-thread, the raw message must carry In-Reply-To/References
+  // pointing at the thread's last message — see getReplyHeaders' doc comment.
+  const replyHeaders = options.threadId
+    ? await getReplyHeaders(gmail, options.threadId)
+    : null;
+
   // Build and encode the RFC 2822 message.
-  const raw = buildRaw(from, options);
+  const raw = buildRaw(from, options, replyHeaders);
 
   // Send via Gmail API.
   let sentId: string;

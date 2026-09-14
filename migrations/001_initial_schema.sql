@@ -5,24 +5,30 @@
 -- ─────────────────────────────────────────────────────────────────────────────
 -- 1. users
 -- ─────────────────────────────────────────────────────────────────────────────
--- OAuth tokens (access_token, refresh_token) are stored as AES-256-GCM
--- ciphertext produced by the application layer. The columns are opaque TEXT;
--- no plaintext credential ever reaches the database.
+-- OAuth tokens (encrypted_access_token, encrypted_refresh_token) are stored as
+-- AES-256-GCM ciphertext produced by the application layer (src/providers/gmail/auth.ts).
+-- The columns are opaque TEXT; no plaintext credential ever reaches the database.
+-- Nullable because a row can exist momentarily before persistTokens() runs and
+-- to tolerate a future provider that skips token persistence.
+--
+-- token_expires_at / watch_expiry are Unix-ms timestamps (BIGINT), not
+-- TIMESTAMPTZ, because they are round-tripped as raw numbers to/from the
+-- googleapis client (`expiry_date`) and compared numerically in src/cron/renewWatch.ts.
 
 CREATE TABLE IF NOT EXISTS public.users (
-  id                UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
-  google_id         TEXT        UNIQUE NOT NULL,   -- Google OAuth sub; upsert conflict target
-  email             TEXT        NOT NULL,
-  name              TEXT        NOT NULL,
+  id                      UUID   PRIMARY KEY DEFAULT gen_random_uuid(),
+  google_id               TEXT   UNIQUE NOT NULL,   -- Google OAuth sub; upsert conflict target
+  email                   TEXT   UNIQUE NOT NULL,   -- looked up by webhook receiver; must be unique
+  name                    TEXT,                     -- Google profile name; not always returned
   -- App-layer encrypted (AES-256-GCM in src/); never plaintext in this column
-  access_token      TEXT        NOT NULL,
-  refresh_token     TEXT        NOT NULL,
-  token_expiry      TIMESTAMPTZ NOT NULL,
+  encrypted_access_token  TEXT,
+  encrypted_refresh_token TEXT,
+  token_expires_at        BIGINT,                    -- Unix ms (googleapis expiry_date)
   -- Gmail Pub/Sub watch metadata (Unit 4 — webhook receiver)
-  history_id        TEXT,                          -- last known historyId for history.list delta
-  watch_expiry      TIMESTAMPTZ,                   -- when the Gmail push watch expires (~7 days)
-  created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at        TIMESTAMPTZ NOT NULL DEFAULT now()
+  history_id              TEXT,                      -- last known historyId for history.list delta
+  watch_expiry            BIGINT,                    -- Unix ms; when the Gmail push watch expires (~7 days)
+  created_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at              TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 -- ─────────────────────────────────────────────────────────────────────────────
@@ -69,9 +75,9 @@ CREATE TABLE IF NOT EXISTS public.messages (
 );
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- 3. updated_at trigger
+-- 3. Triggers
 -- ─────────────────────────────────────────────────────────────────────────────
--- CREATE OR REPLACE makes the function idempotent.
+-- CREATE OR REPLACE makes functions idempotent.
 -- DROP TRIGGER IF EXISTS + CREATE TRIGGER is the idempotent pattern for
 -- triggers (CREATE OR REPLACE TRIGGER requires PG 14+; DROP+CREATE is safe
 -- on all supported Supabase Postgres versions).
@@ -94,9 +100,39 @@ CREATE TRIGGER trg_messages_updated_at
   BEFORE UPDATE ON public.messages
   FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
 
+-- `id` has no column DEFAULT because its default value (gmailId) lives in
+-- another column of the same row. Every insert path (src/db/index.ts,
+-- src/sync/normalize.ts, api/v1/drafts.ts, tests/helpers/supabase.ts) omits
+-- `id` entirely and relies on the database to fill it in — this trigger is
+-- that fill-in. BEFORE INSERT row triggers run before Postgres evaluates
+-- ON CONFLICT targets, so this also runs ahead of the gmail_id conflict
+-- check below.
+CREATE OR REPLACE FUNCTION public.set_message_id()
+RETURNS TRIGGER LANGUAGE plpgsql AS $$
+BEGIN
+  IF NEW.id IS NULL THEN
+    NEW.id := NEW.gmail_id;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_messages_set_id ON public.messages;
+CREATE TRIGGER trg_messages_set_id
+  BEFORE INSERT ON public.messages
+  FOR EACH ROW EXECUTE FUNCTION public.set_message_id();
+
 -- ─────────────────────────────────────────────────────────────────────────────
 -- 4. Indexes
 -- ─────────────────────────────────────────────────────────────────────────────
+
+-- Required for upsertMessage/upsertMessages' `.upsert(row, { onConflict: 'gmail_id' })`
+-- (src/db/index.ts, src/sync/normalize.ts, api/v1/drafts.ts) — Postgres requires
+-- a unique index backing an ON CONFLICT target. gmail_id (not id) is the target
+-- because gmail_id can change across a draft's update/send lifecycle while id
+-- (set once at insert by trg_messages_set_id) stays stable.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_gmail_id_unique
+  ON public.messages (gmail_id);
 
 -- Filter messages by user
 CREATE INDEX IF NOT EXISTS idx_messages_user_id
